@@ -114,8 +114,14 @@ gba() {
     git branch -a
 }
 
-# Git restore file name
+# Git restore file name, fail if file not found
 # Usage: grf <file-name>
-grf() {
+gr() {
+    if [ -z "$1" ]; then
+        echo "❌ Error: File name required"
+        echo "Usage: gr <file-name>"
+        return 1
+    fi
+    
     git restore "$1"
 }

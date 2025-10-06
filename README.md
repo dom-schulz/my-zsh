@@ -4,7 +4,8 @@ A portable ZSH configuration setup with the refined theme and custom functions. 
 
 ## Features
 
-- **Refined Theme**: Clean and minimal prompt with git status integration
+- **Two Themes**: Choose between refined (feature-rich) or simple (compact)
+  - Auto-recommends based on SSH detection (simple for remote, refined for local)
 - **Custom Functions**: Extensible function library for common tasks
 - **Easy Setup**: One-command installation on new machines
 - **Safe Updates**: Automatic backup of existing configuration
@@ -32,8 +33,9 @@ chmod +x setup.sh
 
 The script will:
 - ✅ Detect your OS and install zsh if not present
+- ✅ **Prompt you to select a theme** (with smart recommendations)
 - ✅ Backup your existing `.zshrc`
-- ✅ Configure the refined theme
+- ✅ Configure your chosen theme
 - ✅ Load all custom functions
 
 3. **Switch to zsh** (if not already using it):
@@ -49,7 +51,13 @@ Then restart your terminal.
 
 ## What's Included
 
-### Refined Theme
+### Themes
+
+You'll be prompted to choose during setup. The script automatically recommends:
+- **Simple** for SSH/remote sessions
+- **Refined** for local development
+
+#### Refined Theme (Recommended for Local Dev)
 A beautiful, minimal theme (based on Pure by Sindre Sorhus) featuring:
 - **Repository information**: Shows repo name, current path, and VCS branch
 - **Git status indicators**: 
@@ -62,6 +70,25 @@ A beautiful, minimal theme (based on Pure by Sindre Sorhus) featuring:
   - Red `❯` on command failure
 - **SSH detection**: Shows `user@host` when connected via SSH
 - **Multi-VCS support**: Works with Git, Mercurial (hg), and Bazaar (bzr)
+
+**Example:**
+```
+my-zsh/themes git:main* 12s
+
+❯ 
+```
+
+#### Simple Theme (Recommended for SSH/Remote)
+A clean, compact single-line theme (based on geoffgarside) featuring:
+- **Hostname display**: Red hostname (perfect for identifying remote servers)
+- **Current directory**: Green directory name
+- **Git branch**: Blue git branch in parentheses
+- **Compact format**: Everything on one line, minimal resource usage
+
+**Example:**
+```
+server-name:my-zsh (main) $ 
+```
 
 ### Custom Functions
 
@@ -121,9 +148,23 @@ echo 'myfunction() { echo "Hello World"; }' > functions/my-custom.zsh
 
 All `.zsh` files in the functions directory are automatically loaded.
 
-### Modifying the Theme
+### Switching Themes
 
-Edit `themes/refined.zsh-theme` to customize:
+To change themes, simply re-run the setup script:
+```bash
+cd ~/my-zsh
+./setup.sh
+```
+
+You'll be prompted to select a theme again.
+
+### Modifying Themes
+
+Edit the theme files to customize:
+- `themes/refined.zsh-theme` - Feature-rich theme
+- `themes/simple.zsh-theme` - Compact theme
+
+Customize:
 - Prompt symbols
 - Colors
 - Git status indicators
@@ -140,9 +181,11 @@ my-zsh/
 ├── README.md                      # This file
 ├── setup.sh                       # Installation script (Unix/Linux/macOS/WSL)
 ├── setup.ps1                      # Installation script (Windows PowerShell)
+├── INSTALL_WSL.md                # WSL-specific installation guide
 ├── .gitignore                     # Git ignore rules
 ├── themes/
-│   └── refined.zsh-theme         # Refined theme (Pure-based)
+│   ├── refined.zsh-theme         # Refined theme (Pure-based, local dev)
+│   └── simple.zsh-theme          # Simple theme (compact, for SSH/remote)
 └── functions/
     ├── example-functions.zsh     # Utility functions
     └── git-functions.zsh         # Git workflow functions

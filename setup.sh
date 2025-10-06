@@ -73,6 +73,55 @@ else
     echo -e "   Version: $(zsh --version)\n"
 fi
 
+# Theme selection
+echo -e "${BLUE}🎨 Select your ZSH theme:${NC}\n"
+echo -e "${BLUE}Available themes:${NC}"
+echo -e "  ${GREEN}1)${NC} refined  - Beautiful, feature-rich theme (Pure-based)"
+echo -e "                Shows: repo info, git status, execution time, multi-line"
+echo -e "  ${GREEN}2)${NC} simple   - Clean, compact theme (geoffgarside-based)"
+echo -e "                Shows: hostname, directory, git branch on single line"
+echo -e ""
+
+# Detect if SSH session
+THEME_CHOICE=""
+if [ -n "$SSH_CONNECTION" ] || [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
+    echo -e "${YELLOW}💡 Recommendation: ${GREEN}simple${YELLOW} (SSH session detected)${NC}"
+    echo -e "   The simple theme is lighter and better for remote servers."
+    RECOMMENDED_DEFAULT="2"
+else
+    echo -e "${YELLOW}💡 Recommendation: ${GREEN}refined${YELLOW} (local development detected)${NC}"
+    echo -e "   The refined theme provides rich context for local development."
+    RECOMMENDED_DEFAULT="1"
+fi
+
+echo -e ""
+read -p "Enter your choice [1 or 2] (default: $RECOMMENDED_DEFAULT): " THEME_CHOICE
+THEME_CHOICE=${THEME_CHOICE:-$RECOMMENDED_DEFAULT}
+
+case $THEME_CHOICE in
+    1)
+        SELECTED_THEME="refined.zsh-theme"
+        THEME_NAME="refined"
+        echo -e "${GREEN}✓ Selected: Refined theme${NC}\n"
+        ;;
+    2)
+        SELECTED_THEME="simple.zsh-theme"
+        THEME_NAME="simple"
+        echo -e "${GREEN}✓ Selected: Simple theme${NC}\n"
+        ;;
+    *)
+        echo -e "${YELLOW}⚠️  Invalid choice. Using recommended theme.${NC}"
+        if [ "$RECOMMENDED_DEFAULT" = "1" ]; then
+            SELECTED_THEME="refined.zsh-theme"
+            THEME_NAME="refined"
+        else
+            SELECTED_THEME="simple.zsh-theme"
+            THEME_NAME="simple"
+        fi
+        echo -e "${GREEN}✓ Selected: $THEME_NAME theme${NC}\n"
+        ;;
+esac
+
 # Backup existing .zshrc if it exists
 if [ -f ~/.zshrc ]; then
     BACKUP_FILE=~/.zshrc.backup.$(date +%Y%m%d_%H%M%S)
@@ -96,8 +145,8 @@ cat >> ~/.zshrc << EOF
 # Custom ZSH configuration from my-zsh repo
 export MY_ZSH_PATH="${SCRIPT_DIR}"
 
-# Load refined theme
-source "\${MY_ZSH_PATH}/themes/refined.zsh-theme"
+# Load selected theme
+source "\${MY_ZSH_PATH}/themes/${SELECTED_THEME}"
 
 # Load all custom functions
 for function_file in "\${MY_ZSH_PATH}/functions"/*.zsh; do
@@ -118,8 +167,8 @@ EOF
 echo -e "${GREEN}✅ Setup complete!${NC}\n"
 echo -e "${BLUE}📌 Summary:${NC}"
 echo -e "  - ZSH is installed and ready"
+echo -e "  - Theme: ${GREEN}${THEME_NAME}${NC}"
 echo -e "  - Backed up your previous .zshrc (if it existed)"
-echo -e "  - Added refined theme from: ${SCRIPT_DIR}/themes/"
 echo -e "  - Loaded custom functions from: ${SCRIPT_DIR}/functions/"
 echo -e ""
 echo -e "${YELLOW}⚡ To start using your new setup:${NC}"
@@ -131,7 +180,7 @@ echo -e "  Then restart your terminal"
 echo -e ""
 echo -e "${BLUE}📝 Tips:${NC}"
 echo -e "  - Add your custom functions to: ${SCRIPT_DIR}/functions/"
-echo -e "  - Edit the theme in: ${SCRIPT_DIR}/themes/refined.zsh-theme"
-echo -e "  - Re-run this script anytime to update your configuration"
+echo -e "  - Edit the theme in: ${SCRIPT_DIR}/themes/${SELECTED_THEME}"
+echo -e "  - Re-run this script anytime to update or change themes"
 echo -e ""
 

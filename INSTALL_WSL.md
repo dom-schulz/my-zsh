@@ -28,8 +28,9 @@ chmod +x setup.sh
 
 The setup script will:
 1. **Auto-install zsh** if not already installed (will prompt for sudo password)
-2. Configure your `~/.zshrc` file
-3. Set up the refined theme and all functions
+2. **Ask you to select a theme** (simple or refined - recommends simple for SSH)
+3. Configure your `~/.zshrc` file
+4. Set up your chosen theme and all functions
 
 ### 2. Switch to ZSH
 

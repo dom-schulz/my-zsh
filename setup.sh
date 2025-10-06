@@ -145,6 +145,10 @@ cat >> ~/.zshrc << EOF
 # Custom ZSH configuration from my-zsh repo
 export MY_ZSH_PATH="${SCRIPT_DIR}"
 
+# Enable essential zsh features
+autoload -U colors && colors
+setopt PROMPT_SUBST
+
 # Load selected theme
 source "\${MY_ZSH_PATH}/themes/${SELECTED_THEME}"
 

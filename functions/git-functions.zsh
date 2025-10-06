@@ -113,3 +113,9 @@ gst() {
 gba() {
     git branch -a
 }
+
+# Git restore file name
+# Usage: grf <file-name>
+grf() {
+    git restore "$1"
+}

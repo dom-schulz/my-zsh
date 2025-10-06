@@ -13,8 +13,8 @@ A portable ZSH configuration setup with the refined theme and custom functions. 
 
 ### Prerequisites
 
-- ZSH must be installed on your system
 - Git for cloning the repository
+- ZSH will be automatically installed by the setup script if not present
 
 ### Installation
 
@@ -24,11 +24,17 @@ git clone <your-repo-url> ~/my-zsh
 cd ~/my-zsh
 ```
 
-2. Run the setup script:
+2. Run the setup script (will auto-install zsh if needed):
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
+
+The script will:
+- ✅ Detect your OS and install zsh if not present
+- ✅ Backup your existing `.zshrc`
+- ✅ Configure the refined theme
+- ✅ Load all custom functions
 
 3. **Switch to zsh** (if not already using it):
 ```bash

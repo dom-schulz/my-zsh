@@ -4,11 +4,8 @@ Quick guide for setting up my-zsh on Windows Subsystem for Linux (WSL).
 
 ## Prerequisites
 
-Make sure zsh is installed:
-```bash
-sudo apt update
-sudo apt install zsh -y
-```
+- Git (usually pre-installed in WSL)
+- The setup script will automatically install zsh if it's not present
 
 ## Installation Steps
 
@@ -29,7 +26,10 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-The setup script will configure your `~/.zshrc` file.
+The setup script will:
+1. **Auto-install zsh** if not already installed (will prompt for sudo password)
+2. Configure your `~/.zshrc` file
+3. Set up the refined theme and all functions
 
 ### 2. Switch to ZSH
 

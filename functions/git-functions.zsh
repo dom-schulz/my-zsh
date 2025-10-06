@@ -107,3 +107,9 @@ gbD() {
 gst() {
     git status
 }
+
+# Git branch all
+# Usage: gba
+gba() {
+    git branch -a
+}

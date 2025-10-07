@@ -111,6 +111,7 @@ gst() {
 # Git branch all
 # Usage: gba
 gba() {
+    echo
     git branch -a
 }
 

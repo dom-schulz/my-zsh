@@ -7,6 +7,7 @@ A portable ZSH configuration setup with the refined theme and custom functions. 
 - **Two Themes**: Choose between refined (feature-rich) or simple (compact)
   - Auto-recommends based on SSH detection (simple for remote, refined for local)
 - **Custom Functions**: Extensible function library for common tasks
+- **🎯 Git Branch Autocompletion**: Tab completion for branch names in all git functions
 - **Easy Setup**: One-command installation on new machines
 - **Safe Updates**: Automatic backup of existing configuration
 
@@ -16,6 +17,7 @@ A portable ZSH configuration setup with the refined theme and custom functions. 
 
 - Git for cloning the repository
 - ZSH will be automatically installed by the setup script if not present
+- For Git branch autocompletion: Homebrew's git (includes completion files)
 
 ### Installation
 
@@ -107,14 +109,16 @@ Start a simple HTTP server (default port: 8000).
 
 #### Git Workflow Functions
 
+**All branch operation functions support tab autocompletion for branch names!**
+
 **Commit & Push:**
 - `gacmp "message"` - Add all, commit, and push to current branch (complete workflow)
 - `gacm "message"` - Add all and commit with message
 
 **Branch Operations:**
-- `gco <branch>` - Checkout existing branch
+- `gco <branch>` - Checkout existing branch (✨ autocompletes local & remote branches)
 - `gcob <branch>` - Create and checkout new branch
-- `gbD <branch>` - Force delete branch (fails if no branch name provided)
+- `gbD <branch>` - Force delete branch (✨ autocompletes local branches)
 
 **Remote Operations:**
 - `gfo` - Fetch from origin
@@ -122,7 +126,10 @@ Start a simple HTTP server (default port: 8000).
 - `gfp` - Fetch with prune (removes deleted remote branches)
 
 **Reset Operations:**
-- `grho <branch>` - Reset hard to origin/branch (⚠️ with confirmation prompt)
+- `grho <branch>` - Reset hard to origin/branch (✨ autocompletes remote branches, ⚠️ with confirmation prompt)
+
+**File Operations:**
+- `gr <file>` - Git restore file (✨ autocompletes modified files)
 
 **Quick Status:**
 - `gst` - Git status
@@ -147,6 +154,37 @@ echo 'myfunction() { echo "Hello World"; }' > functions/my-custom.zsh
 ```
 
 All `.zsh` files in the functions directory are automatically loaded.
+
+### Enabling Git Branch Autocompletion ⚡
+
+Enable intelligent tab completion for branch names! Just add this to your `~/.zshrc` **before** the my-zsh configuration:
+
+```bash
+# Apple Silicon:
+fpath=(/opt/homebrew/share/zsh/site-functions $fpath)
+# Intel Mac: use /usr/local/share/zsh/site-functions instead
+
+autoload -Uz compinit
+compinit -i
+
+setopt completeinword
+zstyle ':completion:*' menu select
+```
+
+Then reload: `source ~/.zshrc`
+
+**Test it:** Type `gco <TAB>` and see your branches!
+
+📚 **Detailed guides:**
+- **Quick Start**: See `QUICKSTART_AUTOCOMPLETION.md` (3 simple steps)
+- **Full Guide**: See `AUTOCOMPLETION_SETUP.md` (complete setup + troubleshooting)
+- **Example Config**: See `example.zshrc` (ready-to-use template)
+
+**What gets autocompletion:**
+- `gco <TAB>` - All branches (local + remote)
+- `grho <TAB>` - Remote branches
+- `gbD <TAB>` - Local branches
+- `gr <TAB>` - Modified files
 
 ### Switching Themes
 
@@ -187,8 +225,9 @@ my-zsh/
 │   ├── refined.zsh-theme         # Refined theme (Pure-based, local dev)
 │   └── simple.zsh-theme          # Simple theme (compact, for SSH/remote)
 └── functions/
-    ├── example-functions.zsh     # Utility functions
-    └── git-functions.zsh         # Git workflow functions
+    ├── git.zsh                   # Git workflow functions
+    ├── terraform.zsh             # Terraform utility functions
+    └── _git_completions.zsh      # Branch name autocompletion for git functions
 ```
 
 ## Git Function Examples

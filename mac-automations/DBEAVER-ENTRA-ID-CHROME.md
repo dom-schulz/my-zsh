@@ -15,8 +15,8 @@ tell application "Google Chrome"
         repeat with t in tabList
             set theURL to URL of t
 
-            -- Only match http://localhost:5xxxx...
-            if theURL starts with "http://localhost:5" then
+            -- Only match http://localhost:xxxxx...
+            if theURL starts with "http://localhost:" then
                 -- Read the body text of the page
                 set bodyText to execute t javascript "document.body.innerText"
                 if bodyText contains "Authentication complete. You can close the browser and return to the application." then

@@ -1,4 +1,6 @@
-# Auto-close DBeaver Entra ID Auth Tabs in Chrome (macOS)
+# Auto-close Entra ID Auth Tabs in Chrome (macOS)
+
+For azure CLI login and DBeaver auth
 
 ## 1. Create the AppleScript
 
@@ -6,7 +8,7 @@
 mkdir -p ~/Scripts
 
 cat <<'EOF' > ~/Scripts/close_azure_auth_tabs.applescript
--- Close Chrome tabs that look like DBeaver / Entra ID localhost callbacks
+-- Close Chrome tabs that look like DBeaver / Entra ID / Azure CLI localhost callbacks
 tell application "Google Chrome"
     if (count of windows) is 0 then return
 
@@ -17,9 +19,14 @@ tell application "Google Chrome"
 
             -- Only match http://localhost:xxxxx...
             if theURL starts with "http://localhost:" then
-                -- Read the body text of the page
+                -- Read the body text and title of the page
                 set bodyText to execute t javascript "document.body.innerText"
-                if bodyText contains "Authentication complete. You can close the browser and return to the application." then
+                set theTitle to execute t javascript "document.title"
+
+                if bodyText contains "Authentication complete. You can close the browser and return to the application." ¬
+                    or bodyText contains "You have logged into Microsoft Azure!" ¬
+                    or bodyText contains "You can close this window, or we will redirect you to the Azure CLI documentation" ¬
+                    or theTitle contains "Login successfully" then
                     close t
                 end if
             end if
@@ -57,9 +64,9 @@ cat <<EOF > ~/Library/LaunchAgents/com.user.close-azure-auth-tabs.plist
     <string>$HOME/Scripts/close_azure_auth_tabs.applescript</string>
   </array>
 
-  <!-- Run every 10 seconds -->
+  <!-- Run every 5 seconds -->
   <key>StartInterval</key>
-  <integer>10</integer>
+  <integer>5</integer>
 
   <key>RunAtLoad</key>
   <true/>

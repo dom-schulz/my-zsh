@@ -5,7 +5,7 @@
 # Usage: gacmp "commit message"
 gacmp() {
     if [ -z "$1" ]; then
-        echo "❌ Error: Commit message required"
+        echo "Error: Commit message required"
         echo "Usage: gacmp \"your commit message\""
         return 1
     fi
@@ -19,7 +19,7 @@ gacmp() {
 # Usage: gacm "commit message"
 gacm() {
     if [ -z "$1" ]; then
-        echo "❌ Error: Commit message required"
+        echo "Error: Commit message required"
         echo "Usage: gacm \"your commit message\""
         return 1
     fi
@@ -32,12 +32,12 @@ gacm() {
 # Usage: grho <branch-name>
 grho() {
     if [ -z "$1" ]; then
-        echo "❌ Error: Branch name required"
+        echo "Error: Branch name required"
         echo "Usage: grho <branch-name>"
         return 1
     fi
     
-    echo "⚠️  This will reset hard to origin/$1"
+    echo "WARNING: This will reset hard to origin/$1"
     read -q "REPLY?Continue? (y/n) "
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -64,7 +64,7 @@ gp() {
 # Usage: gco <branch-name>
 gco() {
     if [ -z "$1" ]; then
-        echo "❌ Error: Branch name required"
+        echo "Error: Branch name required"
         echo "Usage: gco <branch-name>"
         return 1
     fi
@@ -72,29 +72,54 @@ gco() {
     git checkout "$1"
 }
 
-# Git checkout -b (create new branch)
+# Git checkout -b (create new branch, push, and set upstream)
 # Usage: gcob <new-branch-name>
 gcob() {
     if [ -z "$1" ]; then
-        echo "❌ Error: Branch name required"
+        echo "Error: Branch name required"
         echo "Usage: gcob <new-branch-name>"
         return 1
     fi
     
-    git checkout -b "$1"
+    git checkout -b "$1" && \
+    git push -u origin "$1"
 }
 
-# Git fetch prune
-# Usage: gfp
+# Git fetch prune (with --force to delete local branches not in origin)
+# Usage: gfp [--force]
 gfp() {
-    git fetch --prune
+    if [ "$1" = "--force" ]; then
+        echo "Fetching from origin..."
+        git fetch origin
+        
+        echo "Pruning remote tracking branches..."
+        git fetch --prune
+        
+        echo "Deleting local branches not in origin..."
+        current_branch=$(git branch --show-current)
+        
+        # Find and delete branches whose upstream is gone
+        git branch -vv | grep ': gone]' | awk '{print $1}' | while read branch; do
+            # Skip current branch and protected branches
+            if [[ "$branch" != "$current_branch" && "$branch" != "main" && "$branch" != "master" ]]; then
+                echo "  Deleting: $branch"
+                git branch -D "$branch"
+            else
+                echo "  Skipping protected branch: $branch"
+            fi
+        done
+        
+        echo "Cleanup complete"
+    else
+        git fetch --prune
+    fi
 }
 
 # Git branch -D (force delete branch)
 # Usage: gbD <branch-name>
 gbD() {
     if [ -z "$1" ]; then
-        echo "❌ Error: Branch name required"
+        echo "Error: Branch name required"
         echo "Usage: gbD <branch-name>"
         return 1
     fi
@@ -119,7 +144,7 @@ gba() {
 # Usage: grf <file-name>
 gr() {
     if [ -z "$1" ]; then
-        echo "❌ Error: File name required"
+        echo "Error: File name required"
         echo "Usage: gr <file-name>"
         return 1
     fi

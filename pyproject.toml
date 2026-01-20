@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ms-cli"
+version = "0.1.0"
+description = "Multi-service workspace management tool"
+requires-python = ">=3.9"
+dependencies = [
+    "typer[all]",
+]
+
+[project.scripts]
+ms = "ms.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]

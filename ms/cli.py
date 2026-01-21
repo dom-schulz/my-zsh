@@ -1,8 +1,8 @@
 import typer
 import sys
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pathlib import Path
-from . import config, workspace, preflight, envfile, exitcodes
+from . import config, workspace, preflight, envfile, exitcodes, git_ops
 
 app = typer.Typer(help="Multi-service workspace management tool")
 
@@ -75,17 +75,423 @@ def aliases():
             alias = repo["alias"]
             # alias cs='ms cs'
             typer.echo(f"alias {alias}='ms {alias}'")
-            
-        # Global env alias? "ms env ls" -> maybe "menv"?
-        # User asked for "env ls", but "env" is a standard unix command.
-        # Overriding "env" is dangerous.
-        # Let's verify what the user asked: "run 'cs env ls' and 'env ls'"
-        # Overriding 'env' is bad practice. I will not output alias env='ms env'.
-        # I will output the repo aliases which enable "cs env ls".
         
+        # Git aliases
+        typer.echo("alias gst='ms gst'")
+        typer.echo("alias gco='ms gco'")
+        typer.echo("alias gfo='ms gfo'")
+        typer.echo("alias gpu='ms gpu'")
+        typer.echo("alias gcob='ms gcob'")
+        typer.echo("alias gba='ms gba'")
+        typer.echo("alias ga='ms ga'")
+        typer.echo("alias gcm='ms gcm'")
+        typer.echo("alias gp='ms gp'")
+        typer.echo("alias gfp='ms gfp'")
+        typer.echo("alias gd='ms gd'")
+            
     except Exception:
         # Fail silently if config invalid, so shell startup doesn't break
         pass
+
+@app.command()
+def completion():
+    """
+    Output zsh completion configuration.
+    Usage in .zshrc: eval "$(ms completion)"
+    """
+    completion_script = '''# ms completion for zsh
+# Cache repos at load time (repos don't change often)
+typeset -ga _MS_CACHED_REPOS
+_MS_CACHED_REPOS=(${(f)"$(ms list-repos 2>/dev/null)"})
+
+# Helper to get all branches (refreshed each time)
+_ms_all_branches() {
+    local -a branches
+    branches=(${(f)"$(ms list-branches 2>/dev/null)"})
+    compadd -a branches
+}
+
+# Helper to get branches from a specific repo
+_ms_branches_for_repo() {
+    local repo_alias=$1
+    local -a branches
+    branches=(${(f)"$(ms list-branches-for-repo "$repo_alias" 2>/dev/null)"})
+    compadd -a branches
+}
+
+_gco() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+    
+    # Check if we're completing right after -r or --repo
+    if [[ "${words[CURRENT-1]}" == "-r" || "${words[CURRENT-1]}" == "--repo" ]]; then
+        # Complete repo names
+        compadd -a _MS_CACHED_REPOS
+        return
+    fi
+    
+    # Parse the command line to find if -r/--repo was already specified
+    local repo_specified=""
+    local i
+    for ((i=2; i < CURRENT; i++)); do
+        if [[ "${words[i]}" == "-r" || "${words[i]}" == "--repo" ]]; then
+            if (( i < $#words )); then
+                repo_specified="${words[i+1]}"
+                break
+            fi
+        fi
+    done
+    
+    # Complete branch names
+    if [[ -n "$repo_specified" ]]; then
+        # Complete branches from specific repo (always fresh)
+        _ms_branches_for_repo "$repo_specified"
+    else
+        # Complete all branches (always fresh)
+        _ms_all_branches
+    fi
+}
+
+_gcob() {
+    _arguments \\
+        '1:branch name:' \\
+        '--push[Push branch]' \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gst() {
+    _arguments \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gba() {
+    _arguments \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gfo() {
+    _arguments \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gpu() {
+    _arguments \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_ga() {
+    _arguments \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gcm() {
+    _arguments \\
+        '1:message:' \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gp() {
+    _arguments \\
+        '--force[Force push]' \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gfp() {
+    _arguments \\
+        '--force[Required to execute]' \\
+        '*'{-r,--repo}'=:repo:_ms_repos'
+}
+
+_gd() {
+    _arguments \\
+        '*'{-r,--repo}'=:repo:_ms_repos' \\
+        '*:git diff args:'
+}
+
+# Register completions
+# Note: These must be registered AFTER the aliases are defined
+# Use compdef -d first to clear any existing completion, then register
+compdef -d gco 2>/dev/null; compdef _gco gco
+compdef -d gcob 2>/dev/null; compdef _gcob gcob
+compdef -d gst 2>/dev/null; compdef _gst gst
+compdef -d gba 2>/dev/null; compdef _gba gba
+compdef -d gfo 2>/dev/null; compdef _gfo gfo
+compdef -d gpu 2>/dev/null; compdef _gpu gpu
+compdef -d ga 2>/dev/null; compdef _ga ga
+compdef -d gcm 2>/dev/null; compdef _gcm gcm
+compdef -d gp 2>/dev/null; compdef _gp gp
+compdef -d gfp 2>/dev/null; compdef _gfp gfp
+compdef -d gd 2>/dev/null; compdef _gd gd
+
+# Mark that completions are loaded
+typeset -g _MS_COMPLETIONS_LOADED=1
+'''
+    typer.echo(completion_script)
+
+@app.command()
+def list_branches():
+    """
+    List all unique branch names across repos (for completion).
+    """
+    try:
+        conf = config.load_config()
+        repos = workspace.get_repos(conf)
+        root = workspace.get_workspace_root()
+        
+        branches = set()
+        for r in repos:
+            path = root / r["name"]
+            # Get local branches
+            res = git_ops.run_git(path, ["branch", "--format=%(refname:short)"], capture_output=True)
+            if res.returncode == 0:
+                for branch in res.stdout.strip().split('\n'):
+                    if branch:
+                        branches.add(branch.strip())
+            
+            # Get remote branches (without remotes/origin/ prefix)
+            res = git_ops.run_git(path, ["branch", "-r", "--format=%(refname:short)"], capture_output=True)
+            if res.returncode == 0:
+                for branch in res.stdout.strip().split('\n'):
+                    if branch and branch.startswith('origin/'):
+                        branch_name = branch.replace('origin/', '', 1)
+                        if branch_name != 'HEAD':
+                            branches.add(branch_name)
+        
+        for branch in sorted(branches):
+            typer.echo(branch)
+            
+    except Exception:
+        # Fail silently for completion
+        pass
+
+@app.command()
+def list_repos():
+    """
+    List all repo aliases (for completion).
+    """
+    try:
+        conf = config.load_config()
+        repos = workspace.get_repos(conf)
+        
+        for repo in repos:
+            typer.echo(repo["alias"])
+            
+    except Exception:
+        # Fail silently for completion
+        pass
+
+@app.command()
+def list_branches_for_repo(repo_alias: str):
+    """
+    List branches for a specific repo (for completion).
+    """
+    try:
+        conf = config.load_config()
+        all_repos = workspace.get_repos(conf)
+        repo = next((r for r in all_repos if r["alias"] == repo_alias), None)
+        
+        if not repo:
+            return
+        
+        root = workspace.get_workspace_root()
+        path = root / repo["name"]
+        
+        if not path.exists():
+            return
+        
+        branches = set()
+        
+        # Get local branches
+        res = git_ops.run_git(path, ["branch", "--format=%(refname:short)"], capture_output=True)
+        if res.returncode == 0:
+            for branch in res.stdout.strip().split('\n'):
+                if branch:
+                    branches.add(branch.strip())
+        
+        # Get remote branches (without remotes/origin/ prefix)
+        res = git_ops.run_git(path, ["branch", "-r", "--format=%(refname:short)"], capture_output=True)
+        if res.returncode == 0:
+            for branch in res.stdout.strip().split('\n'):
+                if branch and branch.startswith('origin/'):
+                    branch_name = branch.replace('origin/', '', 1)
+                    if branch_name != 'HEAD':
+                        branches.add(branch_name)
+        
+        for branch in sorted(branches):
+            typer.echo(branch)
+            
+    except Exception:
+        # Fail silently for completion
+        pass
+
+# --- Git Commands ---
+
+def resolve_repos(conf: Dict[str, Any], aliases: Optional[List[str]] = None, required: bool = False) -> List[Dict[str, Any]]:
+    all_repos = workspace.get_repos(conf)
+    if not aliases:
+        if required:
+             typer.echo("Error: Repo argument required for this command.", err=True)
+             raise typer.Exit(code=2)
+        return all_repos
+    
+    target_repos = []
+    for alias in aliases:
+        repo = next((r for r in all_repos if r["alias"] == alias), None)
+        if not repo:
+             typer.echo(f"Unknown repo '{alias}'", err=True)
+             raise typer.Exit(code=2)
+        target_repos.append(repo)
+    return target_repos
+
+@app.command()
+def gst(repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
+    """Git status"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo)
+    root = workspace.get_workspace_root()
+    
+    for r in repos:
+        git_ops.print_status(r["name"], root / r["name"], r.get("color", "white"))
+        
+@app.command()
+def gco(branch: str, repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
+    """Git checkout"""
+    conf = config.load_config()
+    root = workspace.get_workspace_root()
+    
+    if repo:
+        # Targeted checkout
+        repos = resolve_repos(conf, repo)
+        for r in repos:
+            path = root / r["name"]
+            git_ops.fetch_origin(path)
+            git_ops.checkout(path, branch, r["name"], r.get("color", "white"))
+    else:
+        # Discovery mode
+        repos = workspace.get_repos(conf)
+        candidates = []
+        for r in repos:
+            path = root / r["name"]
+            git_ops.fetch_origin(path)
+            # Check if branch exists (remote or local)
+            res = git_ops.run_git(path, ["rev-parse", "--verify", branch], capture_output=True)
+            res_remote = git_ops.run_git(path, ["rev-parse", "--verify", f"origin/{branch}"], capture_output=True)
+            
+            if res.returncode == 0 or res_remote.returncode == 0:
+                 candidates.append(r)
+        
+        if not candidates:
+            typer.echo(f"Branch '{branch}' not found in any repo.")
+            return
+
+        # Build colored alias list
+        try:
+            from rich.console import Console
+            from rich.text import Text
+            
+            console = Console()
+            
+            # Build the message with colors
+            message = Text("Branch '")
+            message.append(branch, style="bold")
+            message.append("' found in: ")
+            
+            for i, r in enumerate(candidates):
+                if i > 0:
+                    message.append(", ")
+                message.append(r['alias'], style=r.get("color", "white"))
+            
+            console.print(message)
+        except ImportError:
+            # Fallback without colors
+            typer.echo(f"Branch '{branch}' found in: {', '.join(r['alias'] for r in candidates)}")
+        
+        if typer.confirm("Switch these repos?"):
+             for r in candidates:
+                 git_ops.checkout(root / r["name"], branch, r["name"], r.get("color", "white"))
+
+@app.command()
+def gfo(repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
+    """Git fetch origin"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.fetch_origin(root / r["name"], r["name"], r.get("color", "white"))
+
+@app.command()
+def gpu(repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
+    """Git pull"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.pull(root / r["name"], r["name"], r.get("color", "white"))
+
+@app.command()
+def gcob(branch: str, push: bool = False, repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
+    """Git checkout -b"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.create_branch(root / r["name"], branch, push, r["name"], r.get("color", "white"))
+
+@app.command()
+def gba(repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
+    """Git branch -a"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.branch_all(root / r["name"], r["name"], r.get("color", "white"))
+
+@app.command()
+def ga(repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)")):
+    """Git add ."""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo, required=True)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.add_all(root / r["name"], r["name"], r.get("color", "white"))
+
+@app.command()
+def gcm(message: str, repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)")):
+    """Git commit -m"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo, required=True)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.commit(root / r["name"], message, r["name"], r.get("color", "white"))
+
+@app.command()
+def gp(force: bool = False, repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)")):
+    """Git push"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo, required=True)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.push(root / r["name"], force, r.get("defaultBranch", "main"), r["name"], r.get("color", "white"))
+
+@app.command()
+def gfp(force: bool = typer.Option(False, "--force", help="Required to execute"), repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)")):
+    """Git fetch --prune and delete gone branches"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo, required=True)
+    root = workspace.get_workspace_root()
+    for r in repos:
+        git_ops.fetch_prune_delete(root / r["name"], force, r["name"], r.get("color", "white"))
+
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def gd(ctx: typer.Context, repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)")):
+    """Git diff (passes extra args to git diff)"""
+    conf = config.load_config()
+    repos = resolve_repos(conf, repo, required=True)
+    root = workspace.get_workspace_root()
+    
+    # Only allow single repo for interactive diff usually, but loop is fine
+    for r in repos:
+        git_ops.diff(root / r["name"], ctx.args, r["name"], r.get("color", "white"))
 
 # --- Setup Helpers ---
 
@@ -183,6 +589,9 @@ def setup_add_repo():
     
     env_file = typer.prompt("Env file name", default=".env")
     repo_config["envFile"] = env_file
+
+    default_branch = typer.prompt("Default branch", default="main")
+    repo_config["defaultBranch"] = default_branch
     
     if rtype == "db-alembic":
         rev_dir = typer.prompt("Alembic revisions directory")
@@ -223,6 +632,8 @@ def setup_modify_repo():
     repo['alias'] = new_alias
     
     repo['envFile'] = typer.prompt("Env file", default=repo.get('envFile', '.env'))
+
+    repo['defaultBranch'] = typer.prompt("Default branch", default=repo.get('defaultBranch', 'main'))
     
     if repo.get('type') == 'db-alembic':
         current_rev = repo.get('alembic', {}).get('revisionsDirectory', '')

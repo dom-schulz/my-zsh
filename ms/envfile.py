@@ -68,9 +68,8 @@ def update_env_key(repo_path: Path, env_filename: str, key: str, new_value: str)
     # If the value contains spaces and isn't already quoted, quote it.
     # But the user might provide quotes in the input. 
     # The requirement says: "Otherwise write unquoted (optional: auto-quote if contains spaces)"
-    # We will just write it as provided, assuming the user knows what they are doing, 
-    # OR we can try to be smart. Let's stick to literal string replacement first.
-    # Wait, requirement D says:
+    # Writes it as provided, assuming the user knows what they are doing.
+    # Sticks to literal string replacement first.
     # "Preserve whether existing value was quoted... Otherwise write unquoted"
     
     for line in lines:
@@ -91,9 +90,9 @@ def update_env_key(repo_path: Path, env_filename: str, key: str, new_value: str)
                 # Preserve quoting style
                 stripped_val = current_raw_val.strip()
                 prefix = line[:line.find(current_key)] # preserve indentation? Regex handles start of line
-                # Actually regex ^[ \t]* captures indentation implicitly if we look at the group start
+                # Regex ^[ \t]* captures indentation implicitly if looking at the group start
                 # But match.group(0) is the whole match.
-                # Let's reconstruct.
+                # Reconstruct the line.
                 
                 # Check for quotes in existing value
                 quote_char = ""
@@ -112,7 +111,7 @@ def update_env_key(repo_path: Path, env_filename: str, key: str, new_value: str)
                 
                 # Reconstruct line
                 # match.start(1) is index of key start.
-                # We want to preserve everything before the key.
+                # Preserve everything before the key.
                 pre_key = line[:match.start(1)]
                 new_lines.append(f"{pre_key}{key}={final_val}\n")
                 continue
@@ -146,6 +145,82 @@ def update_env_key(repo_path: Path, env_filename: str, key: str, new_value: str)
         raise typer.Exit(code=exitcodes.IO_ERROR)
         
     return True
+
+def find_matching_keys(conf: Dict, repos: List[Dict], target_key: str) -> List[Dict]:
+    """
+    Finds keys in other repos that should match the target_key.
+    Returns a list of dicts:
+    [
+        {
+            "repo": repo_dict,
+            "key": key_name,
+            "value": current_value,
+            "source": "assumed" or "group:group_name"
+        }
+    ]
+    """
+    env_config = conf.get("env", {})
+    ignore_keys = set(env_config.get("ignoreKeys", []))
+    match_groups = env_config.get("matchGroups", [])
+    
+    if target_key in ignore_keys:
+        return []
+
+    matches = []
+    
+    # Check match groups first
+    group_match = None
+    target_group_keys = set()
+    
+    for group in match_groups:
+        group_keys = set(group.get("keys", []))
+        if target_key in group_keys:
+            group_match = group
+            target_group_keys = group_keys
+            break
+            
+    root = workspace.get_workspace_root()
+    
+    for repo in repos:
+        repo_name = repo["name"]
+        env_file = repo.get("envFile", ".env")
+        repo_path = root / repo_name
+        env_path = repo_path / env_file
+        
+        # Parse env only if it exists
+        if not env_path.exists():
+            continue
+            
+        raw_env = parse_env(env_path)
+        
+        found_key = None
+        source = None
+        
+        # 1. Check explicit match group
+        if group_match:
+            # Find any key from the group in this repo
+            for k in target_group_keys:
+                if k in raw_env:
+                    found_key = k
+                    source = f"group:{group_match.get('name')}"
+                    break
+        
+        # 2. Check assumed matching (same key name)
+        # Only if not found via group (or if group didn't find anything, but assumed matching usually implies same key name)
+        if not found_key and not group_match:
+            if target_key in raw_env:
+                found_key = target_key
+                source = "assumed"
+                
+        if found_key:
+            matches.append({
+                "repo": repo,
+                "key": found_key,
+                "value": raw_env[found_key],
+                "source": source
+            })
+            
+    return matches
 
 def validate_env_rules(config_data: Dict, repos_data: List[Dict]) -> None:
     """

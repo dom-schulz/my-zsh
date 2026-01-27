@@ -41,6 +41,93 @@ def get_current_branch(repo_path: Path) -> str:
         return res.stdout.strip()
     return "unknown"
 
+def colorize_status_line(line: str):
+    """Colorize a git status line based on the status indicator."""
+    if not line or len(line) < 3:
+        typer.echo(line)
+        return
+    
+    # Git status -sb format: "XY filename" where X is index, Y is working tree
+    # Common statuses: M (modified), A (added), D (deleted), R (renamed), C (copied), 
+    # U (unmerged), ? (untracked), ! (ignored)
+    
+    # GitHub colors:
+    # Green: A (added), new files
+    # Red: D (deleted)
+    # Bright Orange: M (modified), R (renamed)
+    # Purple/Magenta: ?? (untracked)
+    
+    status_part = line[:2]
+    rest_of_line = line[2:]
+    
+    # Determine color based on status
+    color = "white"
+    if "A" in status_part:
+        color = "green"
+    elif "D" in status_part:
+        color = "red"
+    elif "M" in status_part:
+        color = "#FF8C00"  # Bright orange (Dark Orange)
+    elif "R" in status_part or "C" in status_part:
+        color = "#FF8C00"  # Bright orange (Dark Orange)
+    elif "?" in status_part:
+        color = "magenta"
+    elif "U" in status_part:
+        color = "red"
+    
+    # Print with color using Rich for better color support
+    try:
+        from rich.console import Console
+        console = Console()
+        console.print(status_part, style=color, end="")
+        typer.echo(rest_of_line)
+    except ImportError:
+        # Fallback to typer with standard colors
+        fallback_color = "yellow" if color.startswith("#") else color
+        typer.secho(status_part, fg=fallback_color, nl=False)
+        typer.echo(rest_of_line)
+
+def colorize_diff_status_line(line: str):
+    """Colorize a git diff --name-status line based on the status indicator."""
+    if not line:
+        typer.echo(line)
+        return
+    
+    # Git diff --name-status format: "STATUS\tFILENAME" (tab-separated)
+    # Common statuses: M (modified), A (added), D (deleted), R (renamed), C (copied)
+    parts = line.split('\t', 1)
+    if len(parts) < 2:
+        typer.echo(line)
+        return
+    
+    status = parts[0].strip()
+    filename = parts[1] if len(parts) > 1 else ""
+    
+    # Determine color based on status
+    color = "white"
+    if status == "A":
+        color = "green"
+    elif status == "D":
+        color = "red"
+    elif status == "M":
+        color = "#FF8C00"  # Bright orange (Dark Orange)
+    elif status.startswith("R") or status == "C":  # R or R100 for renamed
+        color = "#FF8C00"  # Bright orange (Dark Orange)
+    elif status == "U":
+        color = "red"
+    
+    # Print with color using Rich for better color support
+    try:
+        from rich.console import Console
+        console = Console()
+        console.print(f"  {status:5}", style=color, end="")
+        typer.echo(f" {filename}")
+    except ImportError:
+        # Fallback to typer with standard colors
+        fallback_color = "yellow" if color.startswith("#") else color
+        typer.secho(f"  {status:5}", fg=fallback_color, nl=False)
+        typer.echo(f" {filename}")
+
 def print_status(repo_name: str, repo_path: Path, color: str):
     """Run git status -sb and print with header."""
     branch = get_current_branch(repo_path)
@@ -80,9 +167,9 @@ def print_status(repo_name: str, repo_path: Path, color: str):
     if extra_info:
         typer.secho(f"  {extra_info.strip()}", fg="yellow")
     
-    # Print remaining lines (status changes)
+    # Print remaining lines (status changes) with colorized indicators
     for line in lines[1:]:
-        typer.echo(line)
+        colorize_status_line(line)
     
     # Add spacing between repos
     typer.echo()
@@ -151,15 +238,19 @@ def add_all(repo_path: Path, repo_name: str = "", color: str = "white"):
         typer.echo("Staged files:")
         for line in diff_res.stdout.strip().split('\n'):
             if line:
-                typer.echo(f"  {line}")
+                colorize_diff_status_line(line)
     else:
         typer.echo("No changes to stage.")
 
-def commit(repo_path: Path, message: str, repo_name: str = "", color: str = "white"):
+def commit(repo_path: Path, message: str, repo_name: str = "", color: str = "white", no_verify: bool = False):
     if repo_name:
         print_repo_header(repo_name, color)
     
-    res = run_git(repo_path, ["commit", "-m", message], capture_output=False)
+    args = ["commit", "-m", message]
+    if no_verify:
+        args.append("--no-verify")
+    
+    res = run_git(repo_path, args, capture_output=False)
     if res.returncode != 0:
         typer.echo("Git commit failed", err=True)
 
@@ -322,7 +413,7 @@ def get_github_repo_url(repo_path: Path) -> Optional[str]:
     except Exception:
         return None
 
-def list_pull_requests(repo_path: Path, repo_name: str = "", color: str = "white") -> bool:
+def list_pull_requests(repo_path: Path, repo_name: str = "", color: str = "white", show_urls: bool = False, author_me: bool = False) -> bool:
     """List open pull requests using GitHub CLI."""
     # Check if gh CLI is available
     try:
@@ -334,6 +425,8 @@ def list_pull_requests(repo_path: Path, repo_name: str = "", color: str = "white
     
     # Run gh pr list command
     cmd = ["gh", "pr", "list", "--json", "number,title,headRefName,state,url", "--limit", "100"]
+    if author_me:
+        cmd.extend(["--author", "@me"])
     res = subprocess.run(cmd, cwd=repo_path, capture_output=True, text=True)
     
     if res.returncode != 0:
@@ -356,6 +449,8 @@ def list_pull_requests(repo_path: Path, repo_name: str = "", color: str = "white
         for pr in prs:
             typer.echo(f"  #{pr['number']}: {pr['title']}")
             typer.echo(f"    Branch: {pr['headRefName']}")
+            if show_urls:
+                typer.echo(f"    URL: {pr['url']}")
             typer.echo()
         
         return True

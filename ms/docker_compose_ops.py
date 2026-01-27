@@ -69,3 +69,19 @@ def build(repo_path: Path, repo_name: str, color: str):
     """Run docker compose build."""
     print_header(repo_name, "build", color)
     run_docker_compose(repo_path, ["build"])
+
+def fresh_rebuild(repo_path: Path, repo_name: str, color: str):
+    """Run docker compose down -v, build, and up -d (fresh rebuild detached)."""
+    print_header(repo_name, "fresh rebuild", color)
+    
+    # Down with volumes
+    typer.echo("  → Tearing down with volumes...")
+    run_docker_compose(repo_path, ["down", "-v"])
+    
+    # Build
+    typer.echo("  → Building...")
+    run_docker_compose(repo_path, ["build"])
+    
+    # Up detached
+    typer.echo("  → Starting up (detached)...")
+    run_docker_compose(repo_path, ["up", "-d"])

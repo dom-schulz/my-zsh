@@ -72,7 +72,7 @@ def get_current_db_revision(repo_path: Path) -> Optional[str]:
             ["current"], 
             capture_output=True,
             check=False,
-            timeout=10
+            timeout=25
         )
         if result.returncode == 0:
             # Parse output: typically "Current revision: abc123def456 (head)"
@@ -243,6 +243,47 @@ def find_common_revision(
     return common
 
 
+def find_revision_in_branches(
+    repo_path: Path,
+    revision_id: str,
+    revisions_dir: str
+) -> List[str]:
+    """
+    Search all local branches for a specific revision ID.
+    Returns list of branch names containing the revision.
+    """
+    found_branches = []
+    
+    # Get all local branches
+    try:
+        result = subprocess.run(
+            ["git", "branch", "--format=%(refname:short)"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        
+        if result.returncode != 0:
+            return []
+            
+        branches = [b.strip() for b in result.stdout.splitlines() if b.strip()]
+        
+        for branch in branches:
+            try:
+                # Check if revision exists in this branch
+                revisions = get_revisions_in_branch(repo_path, branch, revisions_dir)
+                if any(r["id"] == revision_id for r in revisions):
+                    found_branches.append(branch)
+            except Exception:
+                continue
+                
+    except Exception:
+        pass
+            
+    return found_branches
+
+
 def check_revisions_changed(
     repo_path: Path, 
     current_branch: str, 
@@ -313,8 +354,14 @@ def get_migration_plan(
         else:
             # Ghost revision is not in target either.
             # We can't downgrade because we don't have the file.
+            
+            # Search for the revision in other branches
+            found_branches = find_revision_in_branches(repo_path, current_db_rev, revisions_dir)
+            
             return {
-                "error": f"Database is at revision {current_db_rev}, which is missing from both current and target branches. Cannot calculate migration path."
+                "error": f"Database is at revision {current_db_rev}, which is missing from both current and target branches. Cannot calculate migration path.",
+                "missing_revision": current_db_rev,
+                "found_in_branches": found_branches
             }
     
     # Find common revision

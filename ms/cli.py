@@ -53,7 +53,7 @@ def setup():
         typer.echo("\nRunning health checks...")
         # create a dummy context for preflight checks
         # Call logic manually or reload config.
-        conf = config.load_config()
+        conf = config.load_config(require_config=False)
         workspace.get_repos(conf) # Just ensures parsing works
         typer.echo("Health check passed.")
     except Exception as e:
@@ -66,7 +66,7 @@ def aliases():
     Usage in .zshrc: eval "$(ms aliases)"
     """
     try:
-        conf = config.load_config()
+        conf = config.load_config(require_config=False)
         repos = workspace.get_repos(conf)
         
         # Repo aliases
@@ -137,9 +137,9 @@ _ms_branches_for_repo() {
 }
 
 _gco() {
-    _arguments \
-        '1:branch:_ms_all_branches' \
-        '*'{-r,--repo}'=:repo:_ms_repos' \
+    _arguments \\
+        '1:branch:_ms_all_branches' \\
+        '*'{-r,--repo}'=:repo:_ms_repos' \\
         '--skip-migration[Skip database migration checks]'
 }
 
@@ -281,7 +281,7 @@ def list_branches():
     List all unique branch names across repos (for completion).
     """
     try:
-        conf = config.load_config()
+        conf = config.load_config(require_config=False)
         repos = workspace.get_repos(conf)
         root = workspace.get_workspace_root()
         
@@ -317,7 +317,7 @@ def list_repos():
     List all repo aliases (for completion).
     """
     try:
-        conf = config.load_config()
+        conf = config.load_config(require_config=False)
         repos = workspace.get_repos(conf)
         
         for repo in repos:
@@ -333,7 +333,7 @@ def list_branches_for_repo(repo_alias: str):
     List branches for a specific repo (for completion).
     """
     try:
-        conf = config.load_config()
+        conf = config.load_config(require_config=False)
         all_repos = workspace.get_repos(conf)
         repo = next((r for r in all_repos if r["alias"] == repo_alias), None)
         
@@ -419,7 +419,21 @@ def handle_alembic_pre_checkout(
         # Check for errors
         if "error" in plan:
             typer.echo(f"\nWarning: Database migration check failed: {plan['error']}", err=True)
-            typer.echo("This usually means the database is not accessible or not configured.", err=True)
+            
+            # Check if we found the revision in other branches
+            if plan.get("found_in_branches"):
+                typer.echo(f"\nFound revision {plan.get('missing_revision')} in the following local branch(es):")
+                for branch in plan["found_in_branches"]:
+                    try:
+                        from rich.console import Console
+                        console = Console()
+                        console.print(f"  - {branch}", style="green")
+                    except ImportError:
+                        typer.secho(f"  - {branch}", fg="green")
+                typer.echo("\nTo resolve: Switch to one of these branches manually using 'gco <branch-name> --skip-migration'")
+            else:
+                typer.echo("This usually means the database is not accessible or not configured.", err=True)
+                
             if typer.confirm("Skip migration sync and continue with checkout?", default=True):
                 return True
             else:
@@ -471,22 +485,37 @@ def handle_alembic_pre_checkout(
             return True
         return False
 
-def handle_alembic_post_checkout(repo: Dict[str, Any], root: Path):
+def handle_alembic_post_checkout(repo: Dict[str, Any], root: Path, target_branch: str):
     """
-    Handle Alembic migration after checkout (upgrade to head).
+    Handle Alembic migration after checkout (upgrade to head if needed).
     """
     repo_path = root / repo["name"]
     
     try:
-        success, error = alembic_ops.execute_migration(
-            repo_path,
-            downgrade_to=None,
-            upgrade=True
-        )
+        # Check if upgrade is actually needed
+        current_db_rev = alembic_ops.get_current_db_revision(repo_path)
+        if not current_db_rev:
+            typer.echo(f"\nWarning: Could not check database revision", err=True)
+            return
         
-        if not success:
-            typer.echo(f"\nWarning: Migration upgrade failed: {error}", err=True)
-            typer.echo("You are on the new branch but the database may not be synced.", err=True)
+        # Get target branch revisions to find head
+        revisions_dir = repo.get("alembic_versions_dir", "alembic/versions")
+        target_revisions = alembic_ops.get_revisions_in_branch(repo_path, target_branch, revisions_dir)
+        target_chain = alembic_ops.build_revision_chain(target_revisions)
+        target_head = target_chain[-1] if target_chain else None
+        
+        # Only upgrade if current DB is not at target head
+        if target_head and target_head != current_db_rev:
+            success, error = alembic_ops.execute_migration(
+                repo_path,
+                downgrade_to=None,
+                upgrade=True
+            )
+            
+            if not success:
+                typer.echo(f"\nWarning: Migration upgrade failed: {error}", err=True)
+                typer.echo("You are on the new branch but the database may not be synced.", err=True)
+        # else: Already at head, no upgrade needed
     
     except FileNotFoundError as e:
         typer.echo(f"\nWarning: {e}", err=True)
@@ -534,7 +563,7 @@ def gco(
             
             # Post-checkout migration
             if success and r.get("type") == "db-alembic" and not skip_migration:
-                handle_alembic_post_checkout(r, root)
+                handle_alembic_post_checkout(r, root, branch)
     else:
         # Discovery mode
         repos = workspace.get_repos(conf)
@@ -594,7 +623,7 @@ def gco(
                 
                 # Post-checkout migration for db-alembic repos
                 if success and r.get("type") == "db-alembic" and not skip_migration:
-                    handle_alembic_post_checkout(r, root)
+                    handle_alembic_post_checkout(r, root, branch)
 
 @app.command()
 def gfo(repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
@@ -642,13 +671,17 @@ def ga(repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)"
         git_ops.add_all(root / r["name"], r["name"], r.get("color", "white"))
 
 @app.command()
-def gcm(message: str, repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)")):
+def gcm(
+    message: str, 
+    repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)"),
+    no_verify: bool = typer.Option(False, "--no-verify", help="Skip pre-commit hooks")
+):
     """Git commit -m"""
     conf = config.load_config()
     repos = resolve_repos(conf, repo, required=True)
     root = workspace.get_workspace_root()
     for r in repos:
-        git_ops.commit(root / r["name"], message, r["name"], r.get("color", "white"))
+        git_ops.commit(root / r["name"], message, r["name"], r.get("color", "white"), no_verify)
 
 @app.command()
 def gp(force: bool = False, repo: List[str] = typer.Option(..., "--repo", "-r", help="Repo alias(es)")):
@@ -839,7 +872,11 @@ def ghpr_create(
     typer.echo(f"Created {success_count}/{len(eligible_repos)} PR(s)")
 
 @ghpr_app.command(name="ls")
-def ghpr_ls(repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)")):
+def ghpr_ls(
+    repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help="Repo alias(es)"),
+    url: bool = typer.Option(False, "--url", "-u", help="Show PR URLs"),
+    me: bool = typer.Option(False, "--me", "-m", help="Show only PRs opened by you")
+):
     """List open pull requests for repos"""
     conf = config.load_config()
     root = workspace.get_workspace_root()
@@ -857,7 +894,7 @@ def ghpr_ls(repo: Optional[List[str]] = typer.Option(None, "--repo", "-r", help=
     has_prs = False
     for r in repos:
         path = root / r["name"]
-        if git_ops.list_pull_requests(path, r["name"], r.get("color", "white")):
+        if git_ops.list_pull_requests(path, r["name"], r.get("color", "white"), show_urls=url, author_me=me):
             has_prs = True
     
     if not has_prs:
@@ -934,7 +971,7 @@ def setup_add_repo():
     except OSError:
         pass
     
-    conf = config.load_config()
+    conf = config.load_config(require_config=False)
     existing_names = {r["name"] for r in workspace.get_repos(conf)}
     existing_aliases = {r["alias"] for r in workspace.get_repos(conf)}
     
@@ -1315,15 +1352,19 @@ def handle_env_set(alias: str, key: str):
         raise typer.Exit(code=exitcodes.PREFLIGHT_ERROR)
 
     current_val = ""
+    current_env_data = {}
     if env_path.exists():
-        data = envfile.parse_env(env_path)
-        current_val = data.get(key, "")
-        if key in data:
+        current_env_data = envfile.parse_env(env_path)
+        current_val = current_env_data.get(key, "")
+        if key in current_env_data:
             typer.echo(f"Current {key}: {current_val}")
         else:
-             typer.echo(f"{key} not set.")
+            typer.echo(f"{key} not set.", err=True)
+            typer.echo(f"Key does not exist. Use 'env ls' to see available keys.", err=True)
+            raise typer.Exit(code=exitcodes.PREFLIGHT_ERROR)
     else:
-         typer.echo(f"{key} not set (file missing).")
+        typer.echo(f"{key} not set (file missing).", err=True)
+        raise typer.Exit(code=exitcodes.PREFLIGHT_ERROR)
 
     # Find matching keys in other repos
     all_repos = workspace.get_repos(conf)
@@ -1331,13 +1372,38 @@ def handle_env_set(alias: str, key: str):
     
     other_matches = [m for m in matches if m["repo"]["alias"] != alias]
     
-    if other_matches:
+    # Find other keys in the same group within current repo
+    env_config = conf.get("env", {})
+    match_groups = env_config.get("matchGroups", [])
+    current_repo_group_keys = []
+    
+    for group in match_groups:
+        group_keys = set(group.get("keys", []))
+        if key in group_keys:
+            # Found the group containing our key
+            # Find other keys from this group that exist in current repo
+            for k in group_keys:
+                if k != key and k in current_env_data:
+                    current_repo_group_keys.append(k)
+            break
+    
+    if other_matches or current_repo_group_keys:
         typer.echo("\nMatching keys found:")
         try:
             from rich.console import Console
             from rich.text import Text
             console = Console()
             
+            # Show current repo group keys first
+            if current_repo_group_keys:
+                repo_color = repo.get("color", "white")
+                for group_key in current_repo_group_keys:
+                    text = Text()
+                    text.append(f"  {repo['alias']}", style=repo_color)
+                    text.append(f" ({group_key}={current_env_data[group_key]})")
+                    console.print(text)
+            
+            # Then show other repos
             for m in other_matches:
                 m_repo = m["repo"]
                 m_key = m["key"]
@@ -1349,6 +1415,12 @@ def handle_env_set(alias: str, key: str):
                 text.append(f" ({m_key}={m_val})")
                 console.print(text)
         except ImportError:
+            # Show current repo group keys first
+            if current_repo_group_keys:
+                for group_key in current_repo_group_keys:
+                    typer.echo(f"  {repo['alias']} ({group_key}={current_env_data[group_key]})")
+            
+            # Then show other repos
             for m in other_matches:
                 m_repo = m["repo"]
                 m_key = m["key"]
@@ -1373,6 +1445,15 @@ def handle_env_set(alias: str, key: str):
             typer.echo(f"Updated {key} in {repo['alias']}.")
         else:
             typer.echo(f"Value unchanged in {repo['alias']}.")
+        
+        # Update other keys in the same group within current repo
+        if update_all and current_repo_group_keys:
+            for group_key in current_repo_group_keys:
+                g_changed = envfile.update_env_key(repo_path, env_filename, group_key, new_val)
+                if g_changed:
+                    typer.echo(f"Updated {group_key} in {repo['alias']}.")
+                else:
+                    typer.echo(f"Value unchanged for {group_key} in {repo['alias']}.")
             
         # Update others if requested
         if update_all:
@@ -1514,7 +1595,7 @@ def alem(ctx: typer.Context):
     path = root / db_repo["name"]
     
     try:
-        alembic_ops.run_alembic_command(path, ctx.args, capture_output=False, timeout=60)
+        alembic_ops.run_alembic_command(path, ctx.args, capture_output=False, timeout=300)
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)
@@ -1587,21 +1668,29 @@ def create_repo_command(repo_config: Dict[str, Any]):
             path = root / repo_config["name"]
             color = repo_config.get("color", "white")
             docker_compose_ops.build(path, repo_config["name"], color)
+
+        @repo_app.command("dcfr")
+        def dcfr():
+            """Docker compose fresh rebuild (down -v, build, up)"""
+            root = workspace.get_workspace_root()
+            path = root / repo_config["name"]
+            color = repo_config.get("color", "white")
+            docker_compose_ops.fresh_rebuild(path, repo_config["name"], color)
     
     return repo_app
 
 # Load config and register commands
 try:
-    _conf = config.load_config()
+    _conf = config.load_config(require_config=True)
     if _conf:
         _repos = workspace.get_repos(_conf)
         for _repo in _repos:
             _sub_app = create_repo_command(_repo)
             app.add_typer(_sub_app, name=_repo["alias"])
 except Exception:
-    # If config fails to load here, dynamic commands are not registered.
-    # The preflight check in 'main' will handle reporting the error to the user
-    # when they try to run anything.
+    # If config fails to load here (missing or invalid), dynamic commands are not registered.
+    # The preflight check in 'main' will handle reporting the error (or silent exit)
+    # when the user tries to run anything.
     pass
 
 if __name__ == "__main__":

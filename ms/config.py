@@ -27,11 +27,20 @@ def get_config_path() -> Path:
     """Returns the path to ms-config.json in the current directory."""
     return Path.cwd() / CONFIG_FILENAME
 
-def load_config() -> Dict[str, Any]:
-    """Loads and validates the configuration file."""
+def load_config(require_config: bool = True) -> Dict[str, Any]:
+    """
+    Loads and validates the configuration file.
+    
+    Args:
+        require_config: If True, raises FileNotFoundError if config is missing.
+                       If False, returns default config if missing.
+    """
     config_path = get_config_path()
     
     if not config_path.exists():
+        if require_config:
+            raise FileNotFoundError(f"Configuration file not found at {config_path}")
+            
         # Return defaults if missing, so setup can work on a fresh state
         return copy.deepcopy(DEFAULT_CONFIG)
 

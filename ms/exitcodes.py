@@ -1,7 +1,0 @@
-"""
-Exit codes for the ms CLI.
-"""
-SUCCESS = 0
-PREFLIGHT_ERROR = 2
-IO_ERROR = 3
-ENV_CONFLICT_ERROR = 4
